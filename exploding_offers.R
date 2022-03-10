@@ -85,12 +85,12 @@ getSimOrderStatReport <- function(a, b, n_samples = 10000) {
   return (report)
 }
 
-unif <- getSimOrderStatReport(a = 1, b = 1, n_samples = 100000)
-middle <- getSimOrderStatReport(a = 2, b = 2, n_samples = 100000)
-top <- getSimOrderStatReport(a = 3, b = 1, n_samples = 100000)
-bottom <- getSimOrderStatReport(a = 1, b = 3, n_samples = 100000)
+# unif <- getSimOrderStatReport(a = 1, b = 1, n_samples = 100000)
+# middle <- getSimOrderStatReport(a = 2, b = 2, n_samples = 100000)
+# top <- getSimOrderStatReport(a = 3, b = 1, n_samples = 100000)
+# bottom <- getSimOrderStatReport(a = 1, b = 3, n_samples = 100000)
 
-all_report <- dplyr::bind_rows(unif, middle, top, bottom)
+# all_report <- dplyr::bind_rows(unif, middle, top, bottom)
 # name refers to where payoffs are close together 
 
 #### 3. Simulating Preference Data ####
@@ -100,12 +100,11 @@ all_report <- dplyr::bind_rows(unif, middle, top, bottom)
 ##   payoffs from being matched with each department
 ##   beliefs about how likely it is that they're matched with each department
 ##   some cost of rejecting an exploding offer (fixed across all EPs)
-##   --> maybe leave this out?
 ## Departments have...
 ##   preferences over EPs
 ##   an "enthuasiasm type"
 ##     type 1: always prefer someone who wants to work for you
-##     type 2: you don't care about how enthusiastic the employees are
+##     type 0: you don't care about how enthusiastic the employees are
 
 getEP <- function(id, beta_a, beta_b, n_depts) {
   # given an id and parameters of a beta distribution from which to draw preferences,
@@ -322,7 +321,7 @@ simExplodingOfferRound <- function(ep_prefs, dept_prefs, e_reject_cost, beta_a, 
   
   cost_of_reject <- getBetaSD(beta_a, beta_b) * e_reject_cost
   
-  ep_eu_daa <- eps %>%
+  ep_eu_daa <- ep_prefs %>%
     dplyr::left_join(ep_beliefs, by = "rank_by_ep") %>%
     dplyr::group_by(ep) %>%
     dplyr::summarize(daa_exp_u = sum(payoff_to_ep * prob) - cost_of_reject)
@@ -343,13 +342,13 @@ simMarket <- function(sim_id, beta_a, beta_b, dept_type_prob, cost_of_reject) {
   # simulates a set of EPs and Departments, 
   # compares number of blocking pairs under DAA to 
   # number of blocking pairs under e-offer-round + DAA
-  eps <- getEPs(beta_a = 1, beta_b = 1, n_eps = 40, n_depts = 10)
-  depts <- getDepts(type_prob = 0.5, n_eps = 40, n_depts = 10)
+  eps <- getEPs(beta_a = beta_a, beta_b = beta_b, n_eps = 40, n_depts = 10)
+  depts <- getDepts(type_prob = dept_type_prob, n_eps = 40, n_depts = 10)
   daa_output <- runDAA(eps, depts)
   dept_prefs_upd <- updateDeptPrefs(eps, depts)
   blocking_pairs <- getBlockingPairs(daa_output, eps, dept_prefs_upd)
   
-  e_offer_prefs <- simExplodingOfferRound(eps, depts)
+  e_offer_prefs <- simExplodingOfferRound(eps, depts, cost_of_reject, beta_a, beta_b)
   e_offer_daa_output <- runDAA(e_offer_prefs$ep_prefs_upd, e_offer_prefs$dept_prefs_upd)
   e_offer_blocking_pairs <- getBlockingPairs(e_offer_daa_output, eps, dept_prefs_upd)
   
@@ -359,18 +358,25 @@ simMarket <- function(sim_id, beta_a, beta_b, dept_type_prob, cost_of_reject) {
                      "n_shared_blockings" = nrow(dplyr::intersect(blocking_pairs, e_offer_blocking_pairs))))
 }
 
-baseline <- purrr::map_dfr(1:1000, simMarket, beta_a = 1, beta_b = 1, dept_type_prob = 0.5, cost_of_reject = 0.2)
+baseline <- purrr::map_dfr(1:5000, simMarket, beta_a = 1, beta_b = 1, dept_type_prob = 0.5, cost_of_reject = 0.2)
 
-# varying cost of rejecting an exploding offer
-no_cost <- purrr::map_dfr(1:1000, simMarket, beta_a = 1, beta_b = 1, dept_type_prob = 0.5, cost_of_reject = 0)
-high_cost <- purrr::map_dfr(1:1000, simMarket, beta_a = 1, beta_b = 1, dept_type_prob = 0.5, cost_of_reject = 0.5)
+## varying cost of rejecting an exploding offer
+no_cost <- purrr::map_dfr(1:5000, simMarket, beta_a = 1, beta_b = 1, dept_type_prob = 0.5, cost_of_reject = 0)
+high_cost <- purrr::map_dfr(1:5000, simMarket, beta_a = 1, beta_b = 1, dept_type_prob = 0.5, cost_of_reject = 1)
 
-# varying utility differentials between employers
-varied_at_top <- purrr::map_dfr(1:1000, simMarket, beta_a = 1, beta_b = 3, dept_type_prob = 0.5, cost_of_reject = 0.2)
-similar_at_top <- purrr::map_dfr(1:1000, simMarket, beta_a = 3, beta_b = 1, dept_type_prob = 0.5, cost_of_reject = 0.2)
+## varying utility differentials between employers 
+varied_at_top <- purrr::map_dfr(1:5000, simMarket, beta_a = 1, beta_b = 3, dept_type_prob = 0.5, cost_of_reject = 0.2)
+similar_at_top <- purrr::map_dfr(1:5000, simMarket, beta_a = 3, beta_b = 1, dept_type_prob = 0.5, cost_of_reject = 0.2)
 
-# varying employer preference dependences on employee preferences
-high_interdependence <- purrr::map_dfr(1:1000, simMarket, beta_a = 1, beta_b = 1, dept_type_prob = 1, cost_of_reject = 0.2)
-low_interdependence <- purrr::map_dfr(1:1000, simMarket, beta_a = 1, beta_b = 1, dept_type_prob = 0.1, cost_of_reject = 0.2)
+## varying employer preference dependences on employee preferences
+high_interdependence <- purrr::map_dfr(1:5000, simMarket, beta_a = 1, beta_b = 1, dept_type_prob = 1, cost_of_reject = 0.2)
+low_interdependence <- purrr::map_dfr(1:5000, simMarket, beta_a = 1, beta_b = 1, dept_type_prob = 0.1, cost_of_reject = 0.2)
 
+# readr::write_csv(baseline, "baseline_sim_results.csv")
+# readr::write_csv(no_cost, "no_cost_sim_results.csv")
+# readr::write_csv(high_cost, "high_cost_sim_results.csv")
+# readr::write_csv(varied_at_top, "varied_at_top_sim_results.csv")
+# readr::write_csv(similar_at_top, "similar_at_top_sim_results.csv")
+# readr::write_csv(high_interdependence, "high_interdependence_sim_results.csv")
+# readr::write_csv(low_interdependence, "low_interdependence_sim_results.csv")
 
